@@ -1,0 +1,178 @@
+#!/usr/bin/env python
+#-*- coding: utf-8 -*-
+
+import rospy
+from geometry_msgs.msg import Twist
+import sys, select, os
+if os.name == 'nt':   # 返回操作系统类型决定线程数量，posix、nt、java分别代表linux、windows、Java虚拟机操作系统
+  import msvcrt       # msvcrt.getche() 用于读取一个键盘按键，并且以byte型返回，但是不会在控制台（一般是命令行）回显
+else:
+  import tty, termios  # tty模块要与termios模块搭配使用，只能用于unix系统
+
+BURGER_MAX_LIN_VEL = 0.22
+BURGER_MAX_ANG_VEL = 2.84
+
+WAFFLE_MAX_LIN_VEL = 0.26
+WAFFLE_MAX_ANG_VEL = 1.82
+
+LIN_VEL_STEP_SIZE = 0.01
+ANG_VEL_STEP_SIZE = 0.1   # 定义了针对Burger、waflle的速度限制和按键调整幅值
+
+msg = """
+Control Your TurtleBot3!
+---------------------------
+Moving around:
+        w
+   a    s    d
+        x
+
+w/x : increase/decrease linear velocity (Burger : ~ 0.22, Waffle and Waffle Pi : ~ 0.26)
+a/d : increase/decrease angular velocity (Burger : ~ 2.84, Waffle and Waffle Pi : ~ 1.82)
+
+space key, s : force stop
+
+CTRL-C to quit
+"""
+
+e = """
+Communications Failed
+"""
+
+def getKey():
+    if os.name == 'nt':
+      return msvcrt.getch()   # 识别键盘功能键
+
+    fd = sys.stdin.fileno()
+    # fd--文件描述符。文件描述符是一个低级概念，它是一个整数，每个打开的文件都有一个唯一的文件描述符。0-标准输入；1-标准输出；2-标准错误
+    tty.setraw(fd)
+    #将文件描述符fd的模式更改为raw。raw和cbreak函数模式都可以禁止行缓冲(按键直接作用，不需要回车和换行指令)，raw模式在(CTRLC)和(CTRLZ)字符下不回显
+    rlist, _, _ = select.select([sys.stdin], [], [], 0.1)
+    # select函数阻塞进程，监控inputs中的套接字(带fileon()方法的文件句柄)，当其中有套接字满足可读的条件（第一个参数为可读，第二个参数可写），则把这个套接字返回给rs，然后程序继续运行。
+    # 当套接字缓冲区大于1byte时，就被标记为可读。当套接字收到客户端发来的数据，变成可读，然后select就会把这个套接字取出来，进入下一步程序。
+
+    if rlist:
+        key = sys.stdin.read(1) # 最多读取一个字节，以字符串的形式返回
+    else:
+        key = ''
+
+    termios.tcsetattr(sys.stdin, termios.TCSADRAIN, settings)
+    # termios:该模块提供了一个用于tty I/O控制的POSIX调用的接口
+    # tcsetattr:从属性设置文件描述符fd的tty属性
+    # 参数二: 确定属性何时发生更改。TCSANOW立即更改，TCSADRAIN在传输所有排队输出后更改，TCSAFLUSH在传输所有排队输出并丢弃所有排队输入后更改
+
+    return key
+
+def vels(target_linear_vel, target_angular_vel):
+    return "currently:\tlinear vel %s\t angular vel %s " % (target_linear_vel,target_angular_vel)
+
+def makeSimpleProfile(output, input, slop):  # 速度限位函数，防止速度增减过快
+    if input > output:
+        output = min( input, output + slop )
+    elif input < output:
+        output = max( input, output - slop )
+    else:
+        output = input
+
+    return output
+
+def constrain(input, low, high):
+    if input < low:
+      input = low
+    elif input > high:
+      input = high
+    else:
+      input = input
+
+    return input
+
+def checkLinearLimitVelocity(vel):
+    if turtlebot3_model == "burger":
+      vel = constrain(vel, -BURGER_MAX_LIN_VEL, BURGER_MAX_LIN_VEL)
+    elif turtlebot3_model == "waffle" or turtlebot3_model == "waffle_pi":
+      vel = constrain(vel, -WAFFLE_MAX_LIN_VEL, WAFFLE_MAX_LIN_VEL)
+    else:
+      vel = constrain(vel, -BURGER_MAX_LIN_VEL, BURGER_MAX_LIN_VEL)
+
+    return vel
+
+def checkAngularLimitVelocity(vel):
+    if turtlebot3_model == "burger":
+      vel = constrain(vel, -BURGER_MAX_ANG_VEL, BURGER_MAX_ANG_VEL)
+    elif turtlebot3_model == "waffle" or turtlebot3_model == "waffle_pi":
+      vel = constrain(vel, -WAFFLE_MAX_ANG_VEL, WAFFLE_MAX_ANG_VEL)
+    else:
+      vel = constrain(vel, -BURGER_MAX_ANG_VEL, BURGER_MAX_ANG_VEL)
+
+    return vel
+
+if __name__=="__main__":
+    if os.name != 'nt':
+        settings = termios.tcgetattr(sys.stdin)
+
+    rospy.init_node('turtlebot3_teleop')
+    pub = rospy.Publisher('cmd_vel', Twist, queue_size=10)
+
+    turtlebot3_model = rospy.get_param("model", "burger")
+
+    status = 0
+    target_linear_vel   = 0.0
+    target_angular_vel  = 0.0
+    control_linear_vel  = 0.0
+    control_angular_vel = 0.0
+
+    try:
+        print(msg)
+        while(1):
+            key = getKey()
+            if key == 'w' :
+                target_linear_vel = checkLinearLimitVelocity(target_linear_vel + LIN_VEL_STEP_SIZE)
+                status = status + 1
+                print(vels(target_linear_vel,target_angular_vel))
+            elif key == 'x' :
+                target_linear_vel = checkLinearLimitVelocity(target_linear_vel - LIN_VEL_STEP_SIZE)
+                status = status + 1
+                print(vels(target_linear_vel,target_angular_vel))
+            elif key == 'a' :
+                target_angular_vel = checkAngularLimitVelocity(target_angular_vel + ANG_VEL_STEP_SIZE)
+                status = status + 1
+                print(vels(target_linear_vel,target_angular_vel))
+            elif key == 'd' :
+                target_angular_vel = checkAngularLimitVelocity(target_angular_vel - ANG_VEL_STEP_SIZE)
+                status = status + 1
+                print(vels(target_linear_vel,target_angular_vel))
+            elif key == ' ' or key == 's' :
+                target_linear_vel   = 0.0
+                control_linear_vel  = 0.0
+                target_angular_vel  = 0.0
+                control_angular_vel = 0.0
+                print(vels(target_linear_vel, target_angular_vel))
+            else:
+                if (key == '\x03'):
+                    break
+
+            if status == 20 :
+                print(msg)
+                status = 0
+
+            twist = Twist()
+
+            control_linear_vel = makeSimpleProfile(control_linear_vel, target_linear_vel, (LIN_VEL_STEP_SIZE/2.0))
+            twist.linear.x = control_linear_vel; twist.linear.y = 0.0; twist.linear.z = 0.0
+
+            control_angular_vel = makeSimpleProfile(control_angular_vel, target_angular_vel, (ANG_VEL_STEP_SIZE/2.0))
+            twist.angular.x = 0.0; twist.angular.y = 0.0; twist.angular.z = control_angular_vel
+
+            pub.publish(twist)
+
+    except:
+        print(e)
+
+    finally:
+        twist = Twist()
+        twist.linear.x = 0.0; twist.linear.y = 0.0; twist.linear.z = 0.0
+        twist.angular.x = 0.0; twist.angular.y = 0.0; twist.angular.z = 0.0
+        pub.publish(twist)
+
+    if os.name != 'nt':
+        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, settings)
+
