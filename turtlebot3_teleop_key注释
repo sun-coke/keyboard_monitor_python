@@ -57,7 +57,7 @@ def getKey():
 
     termios.tcsetattr(sys.stdin, termios.TCSADRAIN, settings)
     # termios:该模块提供了一个用于tty I/O控制的POSIX调用的接口
-    # tcsetattr:从属性设置文件描述符fd的tty属性
+    # tcsetattr:从属性设置文件描述符fd的tty属性，将终端属性设置为原先的标准模式
     # 参数二: 确定属性何时发生更改。TCSANOW立即更改，TCSADRAIN在传输所有排队输出后更改，TCSAFLUSH在传输所有排队输出并丢弃所有排队输入后更改
 
     return key
@@ -107,7 +107,7 @@ def checkAngularLimitVelocity(vel):
 
 if __name__=="__main__":
     if os.name != 'nt':
-        settings = termios.tcgetattr(sys.stdin)  # tcgetattr——或得文件描述符fd属性settings
+        settings = termios.tcgetattr(sys.stdin)  # tcgetattr——备份文件描述符fd（终端属性）属性settings
 
     rospy.init_node('turtlebot3_teleop')
     pub = rospy.Publisher('cmd_vel', Twist, queue_size=10)
