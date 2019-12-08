@@ -107,7 +107,7 @@ def checkAngularLimitVelocity(vel):
 
 if __name__=="__main__":
     if os.name != 'nt':
-        settings = termios.tcgetattr(sys.stdin)
+        settings = termios.tcgetattr(sys.stdin)  # tcgetattr——或得文件描述符fd属性settings
 
     rospy.init_node('turtlebot3_teleop')
     pub = rospy.Publisher('cmd_vel', Twist, queue_size=10)
